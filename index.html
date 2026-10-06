@@ -1,0 +1,431 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SpeechScribe — Video/Audio to Text</title>
+<meta name="robots" content="noindex, nofollow" />
+<style>
+  :root {
+    --paper: #fdf1dd;
+    --ink: #17140f;
+    --red: #ff4d5e;
+    --yellow: #ffcf1a;
+    --cyan: #24c9e8;
+    --pink: #ff5ea8;
+    --blue: #4d6fff;
+    --green: #23c56b;
+    --purple: #a678ff;
+    --text: #17140f;
+    --muted: #6b6152;
+    --shadow: 5px 5px 0 var(--ink);
+    --shadow-sm: 3px 3px 0 var(--ink);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background-color: var(--paper);
+    background-image: radial-gradient(var(--ink) 1.4px, transparent 1.5px);
+    background-size: 15px 15px;
+    color: var(--text);
+    font-family: "Hiragino Maru Gothic ProN", "Hiragino Sans", -apple-system, BlinkMacSystemFont,
+      "Segoe UI", "Noto Sans JP", sans-serif;
+    font-size: 14px; -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 14px 22px; border-bottom: 4px solid var(--ink); background: var(--cyan);
+  }
+  .brand-kicker { font-size: 10px; letter-spacing: 2.5px; color: var(--ink); font-weight: 900; text-transform: uppercase; }
+  .brand-title {
+    font-size: 24px; font-weight: 900; letter-spacing: .5px; color: #fff;
+    text-shadow: 2px 2px 0 var(--ink), 3px 3px 0 var(--pink); -webkit-text-stroke: 1px var(--ink);
+  }
+  .badge {
+    padding: 7px 14px; border: 2.5px solid var(--ink); border-radius: 20px;
+    font-size: 11px; letter-spacing: 1px; color: var(--ink); font-weight: 900; background: #fff;
+    box-shadow: var(--shadow-sm); text-transform: uppercase;
+  }
+  .badge.y { background: var(--yellow); }
+  .spacer { flex: 1; }
+
+  .main { display: grid; grid-template-columns: 1fr 1.5fr 320px; gap: 18px; padding: 20px 22px; flex: 1; min-height: 0; }
+  .stage { display: flex; flex-direction: column; min-height: 0; }
+  .stage-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .stage-label { font-size: 12px; letter-spacing: 1px; color: #fff; font-weight: 900; background: var(--blue); border: 2.5px solid var(--ink); padding: 4px 12px; border-radius: 20px; box-shadow: var(--shadow-sm); text-transform: uppercase; }
+  .pill { font-size: 11px; color: var(--ink); border: 2.5px solid var(--ink); padding: 4px 12px; border-radius: 20px; font-weight: 800; background: #fff; box-shadow: var(--shadow-sm); }
+  .pill.live { background: var(--green); }
+
+  .drop {
+    position: relative; flex: 1; min-height: 0; background: #fff;
+    border: 3.5px dashed var(--ink); border-radius: 16px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); text-align: center;
+  }
+  .drop.drag { background: #fff6df; box-shadow: var(--shadow), 0 0 0 4px var(--pink) inset; }
+  .drop.has { border-style: solid; }
+  .ph { color: var(--muted); line-height: 1.9; padding: 20px; }
+  .ph .big { color: var(--ink); font-size: 15px; font-weight: 800; }
+  .ph .small { font-size: 12px; margin-top: 8px; }
+  #mediaWrap { width: 100%; padding: 16px; }
+  #mediaWrap video, #mediaWrap audio { width: 100%; border: 3px solid var(--ink); border-radius: 12px; }
+  #fileName { margin-top: 10px; font-weight: 800; font-size: 13px; word-break: break-all; }
+
+  .outbox { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #fff; border: 3.5px solid var(--ink); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
+  #transcript { flex: 1; width: 100%; border: 0; outline: 0; resize: none; padding: 16px; font-family: inherit; font-size: 14px; line-height: 1.85; color: var(--ink); background: transparent; }
+  .out-actions { display: flex; gap: 8px; padding: 10px; border-top: 3px solid var(--ink); background: #fff6df; }
+
+  .side { overflow-y: auto; padding-right: 6px; }
+  .card { background: #fff; border: 3px solid var(--ink); border-radius: 16px; padding: 14px 15px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  .card h3 { margin: 0 0 12px; font-size: 12px; letter-spacing: 1px; color: var(--ink); font-weight: 900; display: inline-block; background: var(--yellow); border: 2.5px solid var(--ink); padding: 3px 12px; border-radius: 20px; box-shadow: var(--shadow-sm); text-transform: uppercase; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0; }
+  .row label { color: var(--ink); font-size: 13px; font-weight: 700; }
+  select { background: #fff; border: 2.5px solid var(--ink); color: var(--ink); padding: 8px 10px; border-radius: 10px; font-size: 13px; min-width: 140px; font-weight: 700; }
+  select:focus { outline: none; box-shadow: var(--shadow-sm); }
+  .card input[type="password"] { background: #fff; border: 2.5px solid var(--ink); color: var(--ink); padding: 8px 10px; border-radius: 10px; font-size: 13px; min-width: 130px; font-weight: 700; }
+  .card input[type="password"]:focus { outline: none; box-shadow: var(--shadow-sm); }
+  .check { display: flex; align-items: center; gap: 9px; margin: 8px 0; }
+  .check input { width: 17px; height: 17px; accent-color: var(--pink); }
+  .check label { font-weight: 700; }
+
+  .btn { border: 2.5px solid var(--ink); background: #fff; color: var(--ink); padding: 9px 14px; border-radius: 12px; cursor: pointer; font-size: 13px; font-weight: 800; box-shadow: var(--shadow-sm); transition: transform .08s, box-shadow .08s; }
+  .btn:hover { transform: translate(-1px,-1px); box-shadow: 4px 4px 0 var(--ink); }
+  .btn:active { transform: translate(3px,3px); box-shadow: 0 0 0 var(--ink); }
+  .btn.pink { background: var(--pink); color: #fff; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .actions { display: flex; gap: 10px; margin-top: 4px; }
+  .start { flex: 1; background: var(--green); border: 3px solid var(--ink); color: var(--ink); font-weight: 900; font-size: 16px; padding: 13px; border-radius: 14px; cursor: pointer; letter-spacing: .5px; box-shadow: var(--shadow); transition: transform .08s, box-shadow .08s; text-transform: uppercase; }
+  .start:hover { transform: translate(-1px,-1px); box-shadow: 6px 6px 0 var(--ink); }
+  .start:active { transform: translate(4px,4px); box-shadow: 0 0 0 var(--ink); }
+  .start:disabled { background: #d8d2c4; color: #8f887a; box-shadow: var(--shadow-sm); cursor: not-allowed; transform: none; }
+  .cancel { padding: 13px 18px; border-radius: 14px; border: 3px solid var(--ink); background: var(--red); color: #fff; cursor: pointer; font-weight: 900; box-shadow: var(--shadow-sm); }
+  .cancel:disabled { opacity: .45; cursor: not-allowed; }
+
+  .maru { background: var(--purple); color: #fff; border: 3px solid var(--ink); border-radius: 16px; padding: 12px 14px; margin-bottom: 16px; box-shadow: var(--shadow); font-weight: 700; font-size: 12.5px; line-height: 1.7; }
+  .maru b { color: var(--yellow); }
+
+  .progress-wrap { padding: 6px 22px 8px; }
+  .progress { position: relative; height: 28px; border-radius: 20px; background: #fff; border: 3px solid var(--ink); overflow: hidden; box-shadow: var(--shadow-sm); }
+  .progress .fill { position: absolute; inset: 0; width: 0%; background: repeating-linear-gradient(45deg, var(--cyan) 0 12px, var(--yellow) 12px 24px); transition: width .2s; }
+  .progress.busy .fill { width: 100% !important; animation: slide 1s linear infinite; background-size: 34px 34px; }
+  @keyframes slide { from { background-position: 0 0; } to { background-position: 34px 0; } }
+  .progress .txt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; color: var(--ink); }
+  .status { padding: 2px 22px 6px; color: var(--ink); font-size: 12.5px; font-weight: 700; }
+  .console { margin: 0 22px 16px; background: #211b13; border: 3px solid var(--ink); border-radius: 14px; padding: 10px 13px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: #e8dcc4; max-height: 110px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6; box-shadow: var(--shadow-sm); }
+  .console .ok { color: #6bf0a0; } .console .warn { color: var(--yellow); } .console .err { color: #ff8b8b; }
+  .hidden { display: none !important; }
+  .side::-webkit-scrollbar, .console::-webkit-scrollbar { width: 10px; }
+  .side::-webkit-scrollbar-thumb, .console::-webkit-scrollbar-thumb { background: var(--ink); border-radius: 8px; }
+</style>
+
+<div class="app">
+  <header>
+    <div>
+      <div class="brand-kicker">SPEECHSCRIBE</div>
+      <div class="brand-title">Video/Audio → Text</div>
+    </div>
+    <div class="badge">LOCAL ONLY</div>
+    <div class="badge y">NO UPLOAD</div>
+    <div class="spacer"></div>
+  </header>
+
+  <div class="main">
+    <!-- INPUT -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="stage-label">INPUT — 動画 / 音声</span>
+        <span class="pill" id="inPill">ファイルなし</span>
+      </div>
+      <div class="drop" id="dropZone">
+        <div class="ph" id="inPlaceholder">
+          <div class="big">動画 or 音声をドラッグ</div>
+          <div class="big">or 下の[ファイルを選択…]</div>
+          <div class="small">mp4 / mov / mp3 / m4a / wav …</div>
+        </div>
+        <div id="mediaWrap" class="hidden">
+          <video id="previewVideo" class="hidden" controls></video>
+          <audio id="previewAudio" class="hidden" controls></audio>
+          <div id="fileName"></div>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <button class="start" style="max-width:220px;flex:none;padding:12px 20px;font-size:14px" id="pickBtn">ファイルを選択…</button>
+        <input type="file" id="fileInput" accept="video/*,audio/*" class="hidden" />
+      </div>
+    </div>
+
+    <!-- OUTPUT -->
+    <div class="stage">
+      <div class="stage-head">
+        <span class="stage-label">OUTPUT — 文字起こし</span>
+        <span class="pill" id="outPill">待機中</span>
+      </div>
+      <div class="outbox">
+        <textarea id="transcript" placeholder="ここに文字起こし結果が出ます。&#10;完了したら『まるるに貼る』ボタンで丸ごとコピー →  まるるに「スライドにして」と貼ればOK！" spellcheck="false"></textarea>
+        <div class="out-actions">
+          <button class="btn pink" id="copyBtn" disabled>📋 まるるに貼る（全部コピー）</button>
+          <button class="btn" id="dlBtn" disabled>⬇ .txt 保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <div class="side">
+      <div class="maru">
+        🩷 <b>まるるメモ</b><br>
+        文字起こしが終わったら「まるるに貼る」→ まるるのチャットに貼って<br><b>「スライドにして」</b>って言ってね。要約＆パワポ資料はまるるが作るよ！
+      </div>
+
+      <div class="card">
+        <h3>エンジン</h3>
+        <div class="row"><label>文字起こし</label>
+          <select id="engine">
+            <option value="groq" selected>Groq クラウド（高精度・推奨）</option>
+            <option value="local">ローカルWhisper（オフライン）</option>
+          </select>
+        </div>
+        <div class="row" id="groqKeyRow"><label>APIキー</label>
+          <input type="password" id="groqKey" placeholder="gsk_..." />
+        </div>
+      </div>
+
+      <div class="card" id="modelCard">
+        <h3>モデル</h3>
+        <div class="row"><label>精度モデル</label>
+          <select id="model">
+            <option value="Xenova/whisper-base" selected>Whisper Base（標準・速い）</option>
+            <option value="Xenova/whisper-small">Whisper Small（高精度・重い）</option>
+            <option value="Xenova/whisper-tiny">Whisper Tiny（最速・粗い）</option>
+          </select>
+        </div>
+        <div class="row"><label>言語</label>
+          <select id="lang">
+            <option value="japanese" selected>日本語</option>
+            <option value="english">English</option>
+            <option value="auto">自動判定</option>
+          </select>
+        </div>
+        <div class="row"><label>精度(dtype)</label>
+          <select id="dtype">
+            <option value="q8" selected>q8（軽量・推奨）</option>
+            <option value="fp32">fp32（高精度）</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>出力オプション</h3>
+        <div class="check"><input type="checkbox" id="timestamps" checked /><label for="timestamps">タイムスタンプを付ける</label></div>
+      </div>
+
+      <div class="actions">
+        <button class="start" id="startBtn" disabled>▶ 文字起こし</button>
+        <button class="cancel" id="cancelBtn" disabled>Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="progress-wrap">
+    <div class="progress" id="progressBox"><div class="fill" id="progFill"></div><div class="txt" id="progTxt">0%</div></div>
+  </div>
+  <div class="status" id="status">待機中 — ファイルを選んでね。（初回はAIモデルをダウンロード。以降はキャッシュ）</div>
+  <div class="console" id="console"></div>
+</div>
+
+<script type="module">
+import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.5";
+env.allowLocalModels = false;
+
+const $ = (id) => document.getElementById(id);
+const dropZone=$("dropZone"), fileInput=$("fileInput"), pickBtn=$("pickBtn");
+const inPlaceholder=$("inPlaceholder"), mediaWrap=$("mediaWrap"), previewVideo=$("previewVideo"), previewAudio=$("previewAudio"), fileNameEl=$("fileName"), inPill=$("inPill");
+const transcriptEl=$("transcript"), outPill=$("outPill"), copyBtn=$("copyBtn"), dlBtn=$("dlBtn");
+const startBtn=$("startBtn"), cancelBtn=$("cancelBtn");
+const progressBox=$("progressBox"), progFill=$("progFill"), progTxt=$("progTxt"), statusEl=$("status"), consoleEl=$("console");
+
+function log(m, c=""){ const d=document.createElement("div"); if(c)d.className=c; d.textContent=m; consoleEl.appendChild(d); consoleEl.scrollTop=consoleEl.scrollHeight; }
+function setStatus(t){ statusEl.textContent=t; }
+function busy(on){ progressBox.classList.toggle("busy", on); if(on) progTxt.textContent="処理中…"; }
+function setProgress(p){ progressBox.classList.remove("busy"); const v=Math.max(0,Math.min(100,p)); progFill.style.width=v+"%"; progTxt.textContent=v.toFixed(0)+"%"; }
+
+let useWebGPU=false;
+(async()=>{
+  if(navigator.gpu){ try{ useWebGPU=!!(await navigator.gpu.requestAdapter()); }catch{} }
+  log("SpeechScribe — 音声はこのブラウザ内だけで文字起こしされます（アップロードなし）。");
+  log("加速: "+(useWebGPU?"WebGPU 利用可能 ✓":"WebGPUなし → CPUで動作（遅め）"), useWebGPU?"ok":"warn");
+})();
+
+let currentFile=null;
+function loadFile(file){
+  if(!file || !(file.type.startsWith("video/")||file.type.startsWith("audio/"))){ log("動画/音声ファイルではありません。","err"); return; }
+  currentFile=file;
+  const url=URL.createObjectURL(file);
+  inPlaceholder.classList.add("hidden"); mediaWrap.classList.remove("hidden"); dropZone.classList.add("has");
+  if(file.type.startsWith("video/")){ previewVideo.src=url; previewVideo.classList.remove("hidden"); previewAudio.classList.add("hidden"); }
+  else { previewAudio.src=url; previewAudio.classList.remove("hidden"); previewVideo.classList.add("hidden"); }
+  fileNameEl.textContent="📄 "+file.name;
+  inPill.textContent=(file.size/1024/1024).toFixed(1)+" MB";
+  startBtn.disabled=false;
+  setStatus("準備OK: "+file.name+"。［文字起こし］を押してね。");
+  log("読み込み: "+file.name, "ok");
+}
+pickBtn.onclick=()=>fileInput.click();
+fileInput.onchange=(e)=>loadFile(e.target.files[0]);
+["dragenter","dragover"].forEach(ev=>dropZone.addEventListener(ev,(e)=>{e.preventDefault();dropZone.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>dropZone.addEventListener(ev,(e)=>{e.preventDefault();dropZone.classList.remove("drag");}));
+dropZone.addEventListener("drop",(e)=>loadFile(e.dataTransfer.files[0]));
+
+// decode media file -> 16kHz mono Float32Array
+async function decodeAudio(file){
+  const buf=await file.arrayBuffer();
+  const AC=window.AudioContext||window.webkitAudioContext;
+  const ac=new AC({ sampleRate:16000 });
+  const audioBuf=await ac.decodeAudioData(buf);
+  ac.close();
+  if(audioBuf.numberOfChannels===1) return audioBuf.getChannelData(0);
+  const l=audioBuf.getChannelData(0), r=audioBuf.getChannelData(1), out=new Float32Array(l.length);
+  for(let i=0;i<l.length;i++) out[i]=(l[i]+r[i])/2;
+  return out;
+}
+function fmtTime(s){ if(s==null||isNaN(s))return""; const m=Math.floor(s/60), ss=Math.floor(s%60); return `[${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}]`; }
+
+// Groq Whisper API（ブラウザから直接呼ぶ。キーはユーザーが入力・端末内のみ）
+async function transcribeGroq(file, apiKey, lang, ts){
+  if(file.size > 25*1024*1024) throw new Error("ファイルが25MBを超えています（Groq無料枠の上限）。音声だけ書き出すか、短く分割してください。");
+  const GROQ_EXT=["flac","mp3","mp4","mpeg","mpga","m4a","ogg","opus","wav","webm"];
+  const ext=(file.name.split(".").pop()||"").toLowerCase();
+  if(!GROQ_EXT.includes(ext)) throw new Error(`この形式(.${ext})はGroq非対応です。mp4/mp3/m4a/wav等に変換してね（iPhoneの.movは特に注意）`);
+  const fd=new FormData();
+  fd.append("file", file, "audio."+ext);   // 拡張子を小文字化して渡す（.MP4→.mp4）
+  fd.append("model", "whisper-large-v3-turbo");
+  if(lang!=="auto") fd.append("language", lang==="japanese"?"ja":lang==="english"?"en":lang);
+  fd.append("response_format", ts?"verbose_json":"json");
+  const res=await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+    method:"POST", headers:{ Authorization:`Bearer ${apiKey}` }, body:fd
+  });
+  if(!res.ok){
+    const t=await res.text().catch(()=> "");
+    if(res.status===401) throw new Error("APIキーが違うかも（gsk_... を確認して）");
+    throw new Error(`Groq APIエラー ${res.status}: ${t.slice(0,160)}`);
+  }
+  const data=await res.json();
+  if(ts && Array.isArray(data.segments) && data.segments.length){
+    return data.segments.map(s=>`${fmtTime(s.start)} ${(s.text||"").trim()}`).join("\n");
+  }
+  return (data.text||"").trim();
+}
+
+let transcriber=null, loadedKey=null;
+async function getTranscriber(model,dtype){
+  const key=model+"|"+dtype+"|"+(useWebGPU?"gpu":"cpu");
+  if(transcriber && loadedKey===key) return transcriber;
+  setStatus("AIモデルを読み込み中…（初回はダウンロードで時間がかかります）"); busy(true);
+  log(`モデル読み込み: ${model} [${dtype}, ${useWebGPU?"webgpu":"wasm"}]`);
+  transcriber=await pipeline("automatic-speech-recognition", model, {
+    device: useWebGPU?"webgpu":"wasm", dtype,
+    progress_callback:(p)=>{ if(p.status==="progress"&&p.file){ setStatus(`モデルDL: ${p.file} ${(p.progress||0).toFixed(0)}%`); } }
+  });
+  loadedKey=key; log("モデル読み込み完了 ✓","ok");
+  return transcriber;
+}
+
+let cancelFlag=false;
+cancelBtn.onclick=()=>{ cancelFlag=true; log("キャンセル要求…","warn"); };
+
+startBtn.onclick=async()=>{
+  if(!currentFile) return;
+  cancelFlag=false;
+  startBtn.disabled=true; cancelBtn.disabled=false; pickBtn.disabled=true; copyBtn.disabled=true; dlBtn.disabled=true;
+  transcriptEl.value=""; outPill.textContent="処理中"; outPill.classList.add("live");
+  const engine=$("engine").value, model=$("model").value, dtype=$("dtype").value, lang=$("lang").value, ts=$("timestamps").checked;
+  try{
+    // ---- Groq クラウド文字起こし（whisper-large-v3-turbo）----
+    if(engine==="groq"){
+      const key=(($("groqKey").value)||"").trim();
+      if(!key){ throw new Error("右サイドの『APIキー』欄にGroqのキー（gsk_...）を貼ってください"); }
+      setStatus("Groqに送信中…（数秒で返ってきます）"); busy(true);
+      log("Groq クラウド文字起こし（whisper-large-v3-turbo）で処理");
+      const text=await transcribeGroq(currentFile, key, lang, ts);
+      transcriptEl.value=text; setProgress(100);
+      outPill.textContent="完了"; outPill.classList.add("live");
+      log(`完了 ✓ Groq文字起こし ${text.length}文字`,"ok");
+      setStatus(`完了！${text.length}文字。［まるるに貼る］でコピー → まるるに「スライドにして」と貼ってね。`);
+      copyBtn.disabled=false; dlBtn.disabled=false;
+      return;
+    }
+    const asr=await getTranscriber(model,dtype);
+    setStatus("音声を抽出中…"); busy(true);
+    const audio=await decodeAudio(currentFile);
+    const dur=(audio.length/16000);
+    log(`音声抽出OK: ${dur.toFixed(1)}秒`, "ok");
+    if(cancelFlag){ throw new Error("キャンセルされました"); }
+
+    setStatus(`文字起こし中…（約${dur.toFixed(0)}秒の音声）`);
+    const t0=performance.now();
+    // 30秒ブロックに分けて処理 → 実進捗％・逐次表示・キャンセル対応
+    const SR=16000, CHUNK_SEC=30, chunkSamples=CHUNK_SEC*SR;
+    const totalChunks=Math.max(1, Math.ceil(audio.length/chunkSamples));
+    log(`文字起こし開始: 音声を ${totalChunks} ブロックに分割して処理`);
+    const parts=[];
+    for(let ci=0; ci<totalChunks; ci++){
+      if(cancelFlag){ log("キャンセルしました。","warn"); break; }
+      setProgress(ci/totalChunks*100);
+      const slice=audio.subarray(ci*chunkSamples, Math.min((ci+1)*chunkSamples, audio.length));
+      const opts={ return_timestamps:ts, chunk_length_s:30, stride_length_s:5 };
+      if(lang!=="auto"){ opts.language=lang; opts.task="transcribe"; }
+      const r=await asr(slice, opts);
+      const offset=ci*CHUNK_SEC;
+      if(ts && r.chunks && r.chunks.length){
+        for(const c of r.chunks) parts.push(`${fmtTime((c.timestamp?.[0]||0)+offset)} ${c.text.trim()}`);
+      } else {
+        parts.push((r.text||"").trim());
+      }
+      transcriptEl.value=parts.join(ts?"\n":" ");
+      transcriptEl.scrollTop=transcriptEl.scrollHeight;
+      const done=ci+1, elapsed=(performance.now()-t0)/1000, remain=(totalChunks-done)*(elapsed/done);
+      setProgress(done/totalChunks*100);
+      setStatus(`文字起こし中… ${done}/${totalChunks} ブロック · 残り約 ${remain.toFixed(0)}秒`);
+      await new Promise(r=>requestAnimationFrame(r)); // UIに描画を渡す
+    }
+    const text=transcriptEl.value.trim();
+    if(cancelFlag){
+      outPill.textContent="キャンセル"; outPill.classList.remove("live");
+      if(text){ copyBtn.disabled=false; dlBtn.disabled=false; log("途中までの結果は残してあります。","warn"); }
+      setStatus("キャンセルしました。途中までの結果は残してあります。");
+      return;
+    }
+    setProgress(100);
+    outPill.textContent="完了"; outPill.classList.add("live");
+    const took=((performance.now()-t0)/1000).toFixed(0);
+    log(`完了 ✓ 文字起こし ${text.length}文字（${took}秒）`, "ok");
+    setStatus(`完了！${text.length}文字。［まるるに貼る］でコピー → まるるに「スライドにして」と貼ってね。`);
+    copyBtn.disabled=false; dlBtn.disabled=false;
+  }catch(err){
+    console.error(err);
+    log("エラー: "+(err?.message||err), "err");
+    if(String(err?.message||err).includes("decode")) log("※音声のデコードに失敗した場合、mp3/m4a/wavに変換して再度お試しください。","warn");
+    setStatus("エラーが発生しました。コンソールを確認してください。");
+    outPill.textContent="エラー"; outPill.classList.remove("live");
+    setProgress(0);
+  }finally{
+    startBtn.disabled=false; cancelBtn.disabled=true; pickBtn.disabled=false;
+  }
+};
+
+copyBtn.onclick=async()=>{
+  try{ await navigator.clipboard.writeText(transcriptEl.value); copyBtn.textContent="✓ コピーした！"; setTimeout(()=>copyBtn.textContent="📋 まるるに貼る（全部コピー）",1500); }
+  catch{ transcriptEl.select(); document.execCommand("copy"); }
+};
+dlBtn.onclick=()=>{
+  const blob=new Blob([transcriptEl.value],{type:"text/plain"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`transcript_${Date.now()}.txt`; a.click();
+};
+
+// エンジン切替（Groq=クラウド / ローカル）＋ APIキーは端末内のみ保存
+function syncEngine(){
+  const g=$("engine").value==="groq";
+  $("groqKeyRow").style.display=g?"":"none";
+  $("modelCard").style.opacity=g?".5":"1";
+}
+$("engine").onchange=syncEngine; syncEngine();
+const KEYNAME="speechscribe_groq_key";
+try{ const sk=localStorage.getItem(KEYNAME); if(sk) $("groqKey").value=sk; }catch{}
+$("groqKey").oninput=()=>{ try{ localStorage.setItem(KEYNAME, $("groqKey").value); }catch{} };
+</script>
