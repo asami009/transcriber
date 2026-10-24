@@ -121,8 +121,8 @@
       <div class="brand-kicker">SPEECHSCRIBE</div>
       <div class="brand-title">Video/Audio → Text</div>
     </div>
-    <div class="badge">LOCAL ONLY</div>
-    <div class="badge y">NO UPLOAD</div>
+    <div class="badge" id="badgeWhere">CLOUD (Groq)</div>
+    <div class="badge y" id="badgeUpload">音声をGroqに送る</div>
     <div class="spacer"></div>
   </header>
 
@@ -147,7 +147,7 @@
       </div>
       <div style="margin-top:12px">
         <button class="start" style="max-width:220px;flex:none;padding:12px 20px;font-size:14px" id="pickBtn">ファイルを選択…</button>
-        <input type="file" id="fileInput" accept="video/*,audio/*" class="hidden" />
+        <input type="file" id="fileInput" class="hidden" /><!-- acceptは付けない：iPhoneが音声ファイルまでグレーにするため。形式はloadFileで判定 -->
       </div>
     </div>
 
@@ -248,17 +248,22 @@ function setProgress(p){ progressBox.classList.remove("busy"); const v=Math.max(
 let useWebGPU=false;
 (async()=>{
   if(navigator.gpu){ try{ useWebGPU=!!(await navigator.gpu.requestAdapter()); }catch{} }
-  log("SpeechScribe — 音声はこのブラウザ内だけで文字起こしされます（アップロードなし）。");
+  log("SpeechScribe — Groqを選ぶと、音声はGroqのサーバーに送って文字にします。ローカルWhisperなら、この端末の中だけで処理します。");
   log("加速: "+(useWebGPU?"WebGPU 利用可能 ✓":"WebGPUなし → CPUで動作（遅め）"), useWebGPU?"ok":"warn");
 })();
 
 let currentFile=null;
+// iPhoneは file.type が空のことがあるので、拡張子でも音声・動画かを見る
+const MEDIA_EXT=["flac","mp3","mp4","mpeg","mpga","m4a","ogg","opus","wav","webm","mov","m4v"];
 function loadFile(file){
-  if(!file || !(file.type.startsWith("video/")||file.type.startsWith("audio/"))){ log("動画/音声ファイルではありません。","err"); return; }
+  if(!file) return;
+  const ext=(file.name.split(".").pop()||"").toLowerCase();
+  const isVideo=file.type.startsWith("video/")||["mp4","mov","m4v"].includes(ext);
+  if(!(isVideo||file.type.startsWith("audio/")||MEDIA_EXT.includes(ext))){ const msg=`音声・動画のファイルではないみたい（${file.name}）。m4a・mp3・mp4などを選んでね`; setStatus(msg); log(msg,"err"); currentFile=null; startBtn.disabled=true; return; }
   currentFile=file;
   const url=URL.createObjectURL(file);
   inPlaceholder.classList.add("hidden"); mediaWrap.classList.remove("hidden"); dropZone.classList.add("has");
-  if(file.type.startsWith("video/")){ previewVideo.src=url; previewVideo.classList.remove("hidden"); previewAudio.classList.add("hidden"); }
+  if(isVideo){ previewVideo.src=url; previewVideo.classList.remove("hidden"); previewAudio.classList.add("hidden"); }
   else { previewAudio.src=url; previewAudio.classList.remove("hidden"); previewVideo.classList.add("hidden"); }
   fileNameEl.textContent="📄 "+file.name;
   inPill.textContent=(file.size/1024/1024).toFixed(1)+" MB";
@@ -423,6 +428,9 @@ function syncEngine(){
   const g=$("engine").value==="groq";
   $("groqKeyRow").style.display=g?"":"none";
   $("modelCard").style.opacity=g?".5":"1";
+  // 上のバッジは選んでいるエンジンに合わせる（Groqは音声を外に送るので「NO UPLOAD」と出さない）
+  $("badgeWhere").textContent=g?"CLOUD (Groq)":"LOCAL ONLY";
+  $("badgeUpload").textContent=g?"音声をGroqに送る":"NO UPLOAD";
 }
 $("engine").onchange=syncEngine; syncEngine();
 const KEYNAME="speechscribe_groq_key";
