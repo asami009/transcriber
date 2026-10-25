@@ -113,6 +113,20 @@
   .hidden { display: none !important; }
   .side::-webkit-scrollbar, .console::-webkit-scrollbar { width: 10px; }
   .side::-webkit-scrollbar-thumb, .console::-webkit-scrollbar-thumb { background: var(--ink); border-radius: 8px; }
+
+  /* スマホ幅：3列だと右の列（APIキー・開始ボタン）が画面の外に出るので、選ぶ→設定→結果の順に縦1列にする */
+  @media (max-width: 760px) {
+    .app { height: auto; min-height: 100vh; }
+    header { flex-wrap: wrap; padding: 12px 16px; }
+    .main { grid-template-columns: 1fr; padding: 16px; }
+    .side { order: 2; overflow: visible; padding-right: 0; }
+    .main > .stage + .stage { order: 3; }
+    .drop { min-height: 200px; }
+    .outbox { min-height: 280px; }
+    .progress-wrap { padding: 6px 16px 8px; }
+    .status { padding: 2px 16px 6px; }
+    .console { margin: 0 16px 16px; }
+  }
 </style>
 
 <div class="app">
@@ -140,8 +154,8 @@
           <div class="small">mp4 / mov / mp3 / m4a / wav …</div>
         </div>
         <div id="mediaWrap" class="hidden">
-          <video id="previewVideo" class="hidden" controls></video>
-          <audio id="previewAudio" class="hidden" controls></audio>
+          <video id="previewVideo" class="hidden" controls playsinline preload="metadata"></video>
+          <audio id="previewAudio" class="hidden" controls preload="metadata"></audio>
           <div id="fileName"></div>
         </div>
       </div>
@@ -278,27 +292,77 @@ fileInput.onchange=(e)=>loadFile(e.target.files[0]);
 dropZone.addEventListener("drop",(e)=>loadFile(e.dataTransfer.files[0]));
 
 // decode media file -> 16kHz mono Float32Array
+// ファイルを丸ごとメモリに読んで音を全部ほどくので、大きすぎる・長すぎるとタブごと落ちる → 先に止める
+// （スマホ300MB・60分は仮の数字。実機で調整）
+const IS_MOBILE=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
+const DEVICE=IS_MOBILE?"スマホ":"このパソコン";
+const DECODE_MAX=(IS_MOBILE?300:2000)*1024*1024, DECODE_MAX_MIN=60;
+// 画面のプレビューから長さ（分）を読む。まだ読めていなければ少し待つ。分からなければnull
+async function mediaMinutes(){
+  const el=previewVideo.classList.contains("hidden")?previewAudio:previewVideo;
+  if(!isFinite(el.duration)) await new Promise(r=>{ el.addEventListener("loadedmetadata",r,{once:true}); el.addEventListener("error",r,{once:true}); setTimeout(r,3000); });
+  return isFinite(el.duration)?el.duration/60:null;
+}
 async function decodeAudio(file){
+  if(file.size>DECODE_MAX) throw Object.assign(new Error(`ファイルが大きすぎて、${DEVICE}では音を取り出せない（${DECODE_MAX/1024/1024}MBまで・このファイルは${(file.size/1024/1024).toFixed(1)}MB）。短く切ってから選んでね`), {tooBig:true});
+  const min=await mediaMinutes();
+  log(min!=null?`長さ: 約${Math.ceil(min)}分`:"長さが分からなかった（そのまま進めます）", min!=null?"":"warn");
+  if(min!=null && min>DECODE_MAX_MIN) throw Object.assign(new Error(`長すぎて、${DEVICE}では音を取り出せない（${DECODE_MAX_MIN}分まで・このファイルは約${Math.ceil(min)}分）。${DECODE_MAX_MIN}分以内に分けてから選んでね`), {tooBig:true});
   const buf=await file.arrayBuffer();
   const AC=window.AudioContext||window.webkitAudioContext;
   const ac=new AC({ sampleRate:16000 });
-  const audioBuf=await ac.decodeAudioData(buf);
-  ac.close();
-  if(audioBuf.numberOfChannels===1) return audioBuf.getChannelData(0);
-  const l=audioBuf.getChannelData(0), r=audioBuf.getChannelData(1), out=new Float32Array(l.length);
-  for(let i=0;i<l.length;i++) out[i]=(l[i]+r[i])/2;
-  return out;
+  try{
+    if(ac.sampleRate!==16000) throw new Error("このブラウザが古くて、音を取り出せない");   // 16kHzにできない古いiOSなど。進めると文字がめちゃくちゃになる
+    const audioBuf=await ac.decodeAudioData(buf);
+    if(audioBuf.numberOfChannels===1) return audioBuf.getChannelData(0);
+    const l=audioBuf.getChannelData(0), r=audioBuf.getChannelData(1), out=new Float32Array(l.length);
+    for(let i=0;i<l.length;i++) out[i]=(l[i]+r[i])/2;
+    return out;
+  }finally{ ac.close(); }
 }
 function fmtTime(s){ if(s==null||isNaN(s))return""; const m=Math.floor(s/60), ss=Math.floor(s%60); return `[${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}]`; }
 
 // Groq Whisper API（ブラウザから直接呼ぶ。キーはユーザーが入力・端末内のみ）
+const GROQ_EXT=["flac","mp3","mp4","mpeg","mpga","m4a","ogg","opus","wav","webm"];
+const GROQ_MAX=25*1024*1024, GROQ_CHUNK_SEC=600;   // 10分ぶんのWAV（16kHz・モノラル）は約19MBで上限に収まる
 async function transcribeGroq(file, apiKey, lang, ts){
-  if(file.size > 25*1024*1024) throw new Error("ファイルが25MBを超えています（Groq無料枠の上限）。音声だけ書き出すか、短く分割してください。");
-  const GROQ_EXT=["flac","mp3","mp4","mpeg","mpga","m4a","ogg","opus","wav","webm"];
   const ext=(file.name.split(".").pop()||"").toLowerCase();
-  if(!GROQ_EXT.includes(ext)) throw new Error(`この形式(.${ext})はGroq非対応です。mp4/mp3/m4a/wav等に変換してね（iPhoneの.movは特に注意）`);
+  if(GROQ_EXT.includes(ext) && file.size<=GROQ_MAX) return groqRequest(file, "audio."+ext, apiKey, lang, ts);   // 拡張子を小文字化して渡す（.MP4→.mp4）
+  // iPhoneの動画(.mov)や25MB超えはそのまま送れない → この端末の中で音だけ取り出し、10分ずつWAVにして送る
+  setStatus("音だけ取り出し中…（この端末の中で処理）"); busy(true);
+  log(`${file.name} はそのまま送れないので、音だけ取り出して送ります`);
+  let audio;
+  try{ audio=await decodeAudio(file); }
+  catch(e){
+    console.error(e);
+    if(e.tooBig) throw e;
+    // .movは中身の作りがmp4とほぼ同じなので、取り出せなくても小さければmp4として送ってみる
+    if(["mov","m4v"].includes(ext) && file.size<=GROQ_MAX){ log("音の取り出しに失敗 → 別の方法で送ってみます","warn"); return groqRequest(file, "audio.mp4", apiKey, lang, ts); }
+    throw new Error(`このファイル（${file.name}）から音を取り出せなかった。`+(IS_MOBILE?"短く切るか、パソコンで試してね":"短く切ってから試してね"));
+  }
+  const step=GROQ_CHUNK_SEC*16000, n=Math.max(1, Math.ceil(audio.length/step)), parts=[];
+  log(`音の取り出しOK: 約${Math.ceil(audio.length/16000/60)}分 → ${n}回に分けて送ります`, "ok");
+  for(let i=0;i<n;i++){
+    if(cancelFlag) throw new Error("キャンセルされました");
+    setStatus(`Groqに送信中… ${i+1}/${n}`); busy(true);
+    parts.push(await groqRequest(encodeWav(audio.subarray(i*step, (i+1)*step), 16000), "audio.wav", apiKey, lang, ts, i*GROQ_CHUNK_SEC));
+    transcriptEl.value=parts.join("\n");
+  }
+  return parts.join("\n");
+}
+// 16kHzモノラルの音を16bitのWAVにする（Groqがそのまま受け付ける形）
+function encodeWav(samples, sr){
+  const v=new DataView(new ArrayBuffer(44+samples.length*2));
+  const str=(o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i, s.charCodeAt(i)); };
+  str(0,"RIFF"); v.setUint32(4, 36+samples.length*2, true); str(8,"WAVE"); str(12,"fmt ");
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true);
+  str(36,"data"); v.setUint32(40, samples.length*2, true);
+  for(let i=0;i<samples.length;i++){ const s=Math.max(-1,Math.min(1,samples[i])); v.setInt16(44+i*2, s<0?s*0x8000:s*0x7fff, true); }
+  return new Blob([v.buffer], {type:"audio/wav"});
+}
+async function groqRequest(blob, name, apiKey, lang, ts, offset=0){
   const fd=new FormData();
-  fd.append("file", file, "audio."+ext);   // 拡張子を小文字化して渡す（.MP4→.mp4）
+  fd.append("file", blob, name);
   fd.append("model", "whisper-large-v3-turbo");
   if(lang!=="auto") fd.append("language", lang==="japanese"?"ja":lang==="english"?"en":lang);
   fd.append("response_format", ts?"verbose_json":"json");
@@ -308,11 +372,12 @@ async function transcribeGroq(file, apiKey, lang, ts){
   if(!res.ok){
     const t=await res.text().catch(()=> "");
     if(res.status===401) throw new Error("APIキーが違うかも（gsk_... を確認して）");
+    if(res.status===429) throw new Error("Groqの無料で使える量を超えました。1時間くらい待ってから、もう一度ためしてね");
     throw new Error(`Groq APIエラー ${res.status}: ${t.slice(0,160)}`);
   }
   const data=await res.json();
   if(ts && Array.isArray(data.segments) && data.segments.length){
-    return data.segments.map(s=>`${fmtTime(s.start)} ${(s.text||"").trim()}`).join("\n");
+    return data.segments.map(s=>`${fmtTime(s.start+offset)} ${(s.text||"").trim()}`).join("\n");
   }
   return (data.text||"").trim();
 }
@@ -332,12 +397,13 @@ async function getTranscriber(model,dtype){
 }
 
 let cancelFlag=false;
-cancelBtn.onclick=()=>{ cancelFlag=true; log("キャンセル要求…","warn"); };
+cancelBtn.onclick=()=>{ cancelFlag=true; log("キャンセル要求… いま処理している分が終わったら止めます","warn"); };
 
 startBtn.onclick=async()=>{
   if(!currentFile) return;
   cancelFlag=false;
   startBtn.disabled=true; cancelBtn.disabled=false; pickBtn.disabled=true; copyBtn.disabled=true; dlBtn.disabled=true;
+  if(IS_MOBILE) progressBox.scrollIntoView({block:"center"});   // スマホは進み具合と表示が開始ボタンより下にあるので、見える所まで動かす
   transcriptEl.value=""; outPill.textContent="処理中"; outPill.classList.add("live");
   const engine=$("engine").value, model=$("model").value, dtype=$("dtype").value, lang=$("lang").value, ts=$("timestamps").checked;
   try{
@@ -404,9 +470,18 @@ startBtn.onclick=async()=>{
     copyBtn.disabled=false; dlBtn.disabled=false;
   }catch(err){
     console.error(err);
+    const partial=transcriptEl.value.trim();
+    if(partial){ copyBtn.disabled=false; dlBtn.disabled=false; }   // 途中までの文字はコピー・保存できるようにする
+    if(cancelFlag){
+      outPill.textContent="キャンセル"; outPill.classList.remove("live");
+      setProgress(0);   // 「処理中…」の動く表示を止める
+      log("キャンセルしました。","warn");
+      setStatus(partial?"キャンセルしました。途中までの結果は残してあります。":"キャンセルしました。");
+      return;
+    }
     log("エラー: "+(err?.message||err), "err");
     if(String(err?.message||err).includes("decode")) log("※音声のデコードに失敗した場合、mp3/m4a/wavに変換して再度お試しください。","warn");
-    setStatus("エラーが発生しました。コンソールを確認してください。");
+    setStatus("うまくいかなかった："+(err?.message||err)+(partial?"（途中までの文字は残してあります）":""));
     outPill.textContent="エラー"; outPill.classList.remove("live");
     setProgress(0);
   }finally{
